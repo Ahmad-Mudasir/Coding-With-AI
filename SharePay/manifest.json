@@ -4,6 +4,7 @@
     "description": "Split travel expenses easily",
     "start_url": "/",
     "display": "standalone",
+    "permissions": ["printing"],
     "background_color": "#FFF7ED",
     "theme_color": "#115E59",
     "icons": [

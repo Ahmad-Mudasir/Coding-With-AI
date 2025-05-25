@@ -8,23 +8,34 @@ import {
   set,
 } from "https://www.gstatic.com/firebasejs/9.20.0/firebase-database.js";
 
-// Firebase configuration
+// Get or create a unique token per browser
+function getBrowserToken() {
+  let token = localStorage.getItem("user_token");
+  if (!token) {
+    token = `user_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    localStorage.setItem("user_token", token);
+  }
+  return token;
+}
+
+const browserToken = getBrowserToken(); // Unique per browser
+
+// Firebase config
 const firebaseConfig = {
-  databaseURL:
-    "https://compliment-generator-ba798-default-rtdb.firebaseio.com/",
+  databaseURL: "https://compliment-generator-ba798-default-rtdb.firebaseio.com/",
 };
 
-// Initialize Firebase App and Database Reference
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
-const expensesRef = ref(database, "expenses"); // Reference to expenses in the database
-const travelersRef = ref(database, "travelers"); // Reference to travelers in the database
 
-// Retrieve necessary elements for manipulation
+// Scoped references
+const expensesRef = ref(database, `users/${browserToken}/expenses`);
+const travelersRef = ref(database, `users/${browserToken}/travelers`);
+
+// DOM elements
 const expenseForm = document.getElementById("expense-form");
-const totalExpensesAmountElement = document.getElementById(
-  "total-expenses-amount"
-);
+const totalExpensesAmountElement = document.getElementById("total-expenses-amount");
 const expenseList = document.getElementById("expense-list");
 const modal = document.getElementById("travelers-modal");
 const openModalButton = document.getElementById("open-modal-button");
@@ -36,52 +47,36 @@ const printButton = document.getElementById("print-travelers");
 const printList = document.getElementById("print-traveler");
 const printExpenseList = document.getElementById("print-expense-list");
 
-document.getElementById("print-date").textContent =
-  new Date().toLocaleDateString();
-document.getElementById("receipt-id").textContent = Math.floor(
-  Math.random() * 900000 + 100000
-); // random 6-digit
+document.getElementById("print-date").textContent = new Date().toLocaleDateString();
+document.getElementById("receipt-id").textContent = Math.floor(Math.random() * 900000 + 100000);
 
-// Initialize arrays to store expense and traveler data
 let expenses = [];
 let travelers = [];
 
-// Event listener to show the modal when the button is clicked
-openModalButton.addEventListener("click", function () {
-  modal.classList.add("display-modal");
+// Modal open/close
+openModalButton.addEventListener("click", () => modal.classList.add("display-modal"));
+closeButton.addEventListener("click", () => modal.classList.remove("display-modal"));
+window.addEventListener("click", (e) => {
+  if (e.target === modal) modal.classList.remove("display-modal");
 });
 
-// Event listener to hide the modal when the close button is clicked
-closeButton.addEventListener("click", function () {
-  modal.classList.remove("display-modal");
-});
-
-// Event listener to close the modal if clicked outside of it
-window.addEventListener("click", function (event) {
-  if (event.target === modal) {
-    modal.classList.remove("display-modal");
-  }
-});
-
-// Handle form submission for expenses
-expenseForm.addEventListener("submit", function (event) {
-  event.preventDefault();
+// Forms
+expenseForm.addEventListener("submit", (e) => {
+  e.preventDefault();
   handleNewExpense();
 });
 
-// Handle form submission for adding a new traveler
-travelersForm.addEventListener("submit", function (event) {
-  event.preventDefault();
+travelersForm.addEventListener("submit", (e) => {
+  e.preventDefault();
   handleNewTraveler();
 });
 
-//handle print data
+// Print Button
 printButton.addEventListener("click", () => {
-  // Set total expense
   const total = expenses.reduce((sum, expense) => sum + expense.amount, 0);
   document.getElementById("print-total").textContent = `$${total}`;
 
-  // Populate traveler list
+  // Traveler list
   printList.innerHTML = "";
   travelers.forEach((traveler) => {
     const item = document.createElement("li");
@@ -107,7 +102,7 @@ printButton.addEventListener("click", () => {
     printList.appendChild(item);
   });
 
-  // Populate expense breakdown list
+  // Expense list
   printExpenseList.innerHTML = "";
   expenses.forEach((expense) => {
     const item = document.createElement("li");
@@ -134,62 +129,66 @@ printButton.addEventListener("click", () => {
     printExpenseList.appendChild(item);
   });
 
-  // Now print
+  
+
   window.print();
+  preparePrintData();
+  // clear data a bit later or reload
+  setTimeout(() => {
+    remove(ref(database, `users/${browserToken}`));
+    //location.reload(); // optional
+  }, 5000);
 });
 
-// Function to process a new expense entry and save to Firebase
+// Add Expense
 function handleNewExpense() {
   const category = document.getElementById("expense-category").value;
   const amount = parseInt(document.getElementById("expense-amount").value);
-  const newExpenseRef = push(expensesRef);
-  set(newExpenseRef, { category, amount }); // Save new expense to Firebase
+  if (!category || isNaN(amount)) return;
+  const newRef = push(expensesRef);
+  set(newRef, { category, amount });
   expenseForm.reset();
 }
 
-// Function to process adding a new traveler and save to Firebase
+// Add Traveler
 function handleNewTraveler() {
-  const travelerName = travelerNameInput.value.trim();
-  if (travelerName !== "") {
-    const newTravelerRef = push(travelersRef);
-    set(newTravelerRef, { name: travelerName }); // Save new traveler to Firebase
-    travelerNameInput.value = "";
-  }
+  const name = travelerNameInput.value.trim();
+  if (!name) return;
+  const newRef = push(travelersRef);
+  set(newRef, { name });
+  travelerNameInput.value = "";
 }
 
-// Function to remove an expense from Firebase
-function deleteExpense(expenseId) {
-  remove(ref(database, `expenses/${expenseId}`)); // Remove the expense from Firebase
+// Remove Expense or Traveler
+function deleteExpense(id) {
+  remove(ref(database, `users/${browserToken}/expenses/${id}`));
+}
+function removeTraveler(id) {
+  remove(ref(database, `users/${browserToken}/travelers/${id}`));
 }
 
-// Function to remove a traveler from Firebase
-function removeTraveler(travelerId) {
-  remove(ref(database, `travelers/${travelerId}`)); // Remove the traveler from Firebase
-}
-
-// Real-time listener for expenses
+// Realtime listeners
 onValue(expensesRef, (snapshot) => {
   expenses = [];
-  snapshot.forEach((childSnapshot) => {
-    const expense = childSnapshot.val();
-    expense.id = childSnapshot.key; // Store Firebase key as id in expense object
-    expenses.push(expense);
+  snapshot.forEach((snap) => {
+    const val = snap.val();
+    val.id = snap.key;
+    expenses.push(val);
   });
   updateDisplays();
 });
 
-// Real-time listener for travelers
 onValue(travelersRef, (snapshot) => {
   travelers = [];
-  snapshot.forEach((childSnapshot) => {
-    const traveler = childSnapshot.val();
-    traveler.id = childSnapshot.key; // Store Firebase key as id in traveler object
-    travelers.push(traveler);
+  snapshot.forEach((snap) => {
+    const val = snap.val();
+    val.id = snap.key;
+    travelers.push(val);
   });
   updateDisplays();
 });
 
-// Function to update all relevant displays (expenses and travelers)
+// UI Update
 function updateDisplays() {
   calculateAmountOwed();
   updateTotalExpensesAmount();
@@ -197,67 +196,44 @@ function updateDisplays() {
   updateTravelersList();
 }
 
-// Calculate the amount each traveler owes and update their record
 function calculateAmountOwed() {
   if (travelers.length === 0) return;
-  const totalExpense = expenses.reduce(
-    (sum, expense) => sum + expense.amount,
-    0
-  );
-  const amountPerTraveler = (totalExpense / travelers.length).toFixed(2);
-  travelers.forEach((traveler) => (traveler.amountOwed = amountPerTraveler));
+  const total = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const share = (total / travelers.length).toFixed(2);
+  travelers.forEach((t) => (t.amountOwed = share));
 }
 
-// Update the total expenses display
 function updateTotalExpensesAmount() {
-  const totalExpense = expenses.reduce(
-    (sum, expense) => sum + expense.amount,
-    0
-  );
-  totalExpensesAmountElement.textContent = "$" + totalExpense;
+  const total = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+  totalExpensesAmountElement.textContent = "$" + total;
 }
 
-// Refresh the list of expenses on the page
 function updateExpenseList() {
   expenseList.innerHTML = "";
-  expenses.forEach(function (expense) {
-    addExpenseToList(expense);
+  expenses.forEach((e) => {
+    const item = document.createElement("li");
+    item.textContent = `${e.category}: $${e.amount}`;
+    const btn = createDeleteButton(e.id, deleteExpense);
+    item.appendChild(btn);
+    expenseList.appendChild(item);
   });
 }
 
-// Add a single expense item to the list
-function addExpenseToList(expense) {
-  const expenseItem = document.createElement("li");
-  expenseItem.textContent = expense.category + ": $" + expense.amount;
-  const deleteIcon = createDeleteButton(expense.id, deleteExpense);
-  expenseItem.appendChild(deleteIcon);
-  expenseList.appendChild(expenseItem);
-}
-
-// Refresh the list of travelers on the page
 function updateTravelersList() {
   travelersList.innerHTML = "";
-  travelers.forEach(function (traveler) {
-    addTravelerToList(traveler);
+  travelers.forEach((t) => {
+    const item = document.createElement("div");
+    item.classList.add("traveler-item");
+    item.textContent = `${t.name}: $${t.amountOwed}`;
+    const btn = createDeleteButton(t.id, removeTraveler);
+    item.appendChild(btn);
+    travelersList.appendChild(item);
   });
 }
 
-// Add a single traveler to the list
-function addTravelerToList(traveler) {
-  const travelerItem = document.createElement("div");
-  travelerItem.classList.add("traveler-item");
-  travelerItem.textContent = traveler.name + ": $" + traveler.amountOwed;
-  const removeButton = createDeleteButton(traveler.id, removeTraveler);
-  travelerItem.appendChild(removeButton);
-  travelersList.appendChild(travelerItem);
-}
-
-// Helper function to create a delete button for both expenses and travelers
-function createDeleteButton(id, deleteFunction) {
-  const button = document.createElement("button");
-  button.innerHTML = "<i class='fas fa-trash-alt'></i>";
-  button.addEventListener("click", function () {
-    deleteFunction(id);
-  });
-  return button;
+function createDeleteButton(id, cb) {
+  const btn = document.createElement("button");
+  btn.innerHTML = "<i class='fas fa-trash-alt'></i>";
+  btn.addEventListener("click", () => cb(id));
+  return btn;
 }
